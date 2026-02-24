@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Attendance Checker - NCST</title>
+  
+  <link rel="stylesheet" href="styles/style.css">
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+  <!-- QR Code Scanner -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <!-- QR Code Generator -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 10px; background: #eee; }
+    .container, #teacher-dashboard { background: white; width: 90%; max-width: 1200px; margin: 0 auto; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    /* larger modals on desktop */
+    .modal-content { width: 90%; max-width: 600px; }
+    /* responsive tweaks */
+    @media (min-width: 768px) {
+        .container, #teacher-dashboard { width: 80%; max-width: 1200px; }
+    }
+    .app-section { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+    button { padding: 10px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+    button:hover { opacity: 0.9; }
+    input { padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; }
+    .status-msg { font-weight: bold; margin-top: 10px; padding: 10px; border-radius: 5px; text-align: center; }
+    .status-present { background-color: #d4edda; color: #155724; }
+    .status-late { background-color: #fff3cd; color: #856404; }
+    .status-absent { background-color: #f8d7da; color: #721c24; }
+    nav { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
+    .controls { display: flex; gap: 5px; justify-content: space-between; margin-bottom: 15px; }
+    .controls button { flex: 1; font-size: 14px; }
+    .modal { display: none; position: fixed; z-index: 999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.8); }
+    .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 600px; border-radius: 8px; }
+    .password-container { display: flex; align-items: center; width: 95%; margin-bottom: 10px; }
+    .password-container input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+    .password-container img { cursor: pointer; width: 20px; height: 20px; margin-left: 10px; }
+  </style>
+</head>
+
+<body>
+  <!-- Dark Mode Toggle Button -->
+  <div style="position: fixed; top: 10px; right: 10px; z-index: 9999;">
+    <button type="button" onclick="toggleDarkMode()" style="width: auto; padding: 5px 10px; background: #444; font-size: 12px; border: 1px solid #666;">Dark Mode</button>
+  </div>
+
+  <!-- LOGIN FORM -->
+  <div class="container">
+    <div class="form-box active" id="login-form">
+      <form id="loginFormObj">
+        <h2 style="text-align:center;">NCST Attendance</h2>
+        <input type="email" name="email" placeholder="Email" style="width:95%;" required>
+        <div class="password-container">
+          <input type="password" name="password" placeholder="Password" id="login-password" required>
+          <img src="styles/closed-eye.jpg" id="login-toggle" onclick="togglePassword('login-password', 'login-toggle')">
+        </div>
+        <button type="submit" style="width:100%;">Login</button>
+        <p style="text-align:center;"><a href="#" onclick="forgotPassword(); return false;">Forgot Password?</a></p>
+        <p style="text-align:center;">Don't have an account? <a href="#" onclick="showForm('register-form'); return false;">Register</a></p>
+      </form>
+    </div>
+
+    <!-- REGISTER FORM -->
+    <div class="form-box" id="register-form" style="display:none;">
+      <form id="registerFormObj">
+        <h2 style="text-align:center;">Register</h2>
+        <input type="text" name="name" placeholder="Full Name" style="width:95%;" required>
+        <input type="email" name="email" placeholder="Email" style="width:95%;" required>
+        <div class="password-container">
+          <input type="password" name="password" placeholder="Password" id="register-password" required>
+          <img src="styles/closed-eye.jpg" id="register-toggle" onclick="togglePassword('register-password', 'register-toggle')">
+        </div>
+        <button type="submit" style="width:100%;">Register</button>
+        <p style="text-align:center;">Already have an account? <a href="#" onclick="showForm('login-form'); return false;">Login</a></p>
+      </form>
+    </div>
+  </div>
+ 
+<!-- TEACHER DASHBOARD -->
+<div id="teacher-dashboard" style="display: none;">
+    
+    <nav>
+      <h3 style="margin:0;">NCST Attendance</h3>
+      <button onclick="logout()" style="background:red; padding:5px 10px; font-size:12px;">Logout</button>
+    </nav>
+
+    <div class="controls">
+      <button onclick="showSection('scan-section')">Scan</button>
+      <button onclick="showSection('manage-section')">Students</button>
+      <button onclick="showSection('report-section')">Reports</button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- SCAN SECTION - Original Code -->
+    <!-- ========================================== -->
+    <div id="scan-section" class="app-section">
+      <h3>Scan Attendance</h3>
+      
+      <!-- SECTION FILTER FOR SCANNING -->
+      <div style="margin-bottom: 15px; padding: 10px; background: #e8f4e8; border-radius:5px; border:1px solid #4caf50;">
+        <label><strong>Filter by Section:</strong></label>
+        <select id="scan-section-filter" style="width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px;">
+          <option value="">All Sections</option>
+          <option value="1">BSCoE - 12M1</option>
+          <option value="2">BSCoE - 12A1</option>
+        </select>
+        <small style="color:#666;">(Leave empty to scan all sections)</small>
+      </div>
+
+      <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius:5px;">
+        <label><strong>Class Start Time:</strong></label>
+        <div style="display:flex; gap:5px; margin-top:5px;">
+            <input type="time" id="class-start-time" style="flex:1;">
+            <button onclick="setStartTime()">Set Time</button>
+        </div>
+        <small style="color:#666;">(Required to mark Late/Present)</small>
+      </div>
+
+      <button onclick="stopClass()" id="stop-class-btn" style="width:100%; background:#dc3545; margin-bottom:15px; display:none;">Stop Class & Mark Absents</button>
+
+      <div id="reader" style="width: 100%;"></div>
+      
+      <div id="scan-result" class="status-msg" style="display:none;"></div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MANAGE SECTION (Today's Update) -->
+    <!-- Added Manage Sections box and Section Filter dropdown -->
+    <!-- ========================================== -->
+    <div id="manage-section" class="app-section" style="display:none;">
+      <h3>Manage Class Roster</h3>
+      
+      <!-- MANAGE SECTIONS BOX (Allows adding new sections dynamically) -->
+      <div style="background:#e8f4e8;padding:10px;margin-bottom:15px;border-radius:5px;border:1px solid #4caf50;">
+        <h4>Manage Sections</h4>
+        <input type="text" id="new-section-name" placeholder="Enter new section name" style="width:95%;">
+        <button onclick="addSection()" style="background:#28a745;margin-top:5px;">+ Add Section</button>
+      </div>
+
+      <!-- ADD STUDENT FORM - Section dropdown to show dynamic sections -->
+      <div style="background:#f9f9f9;padding:10px;margin-bottom:20px;border-radius:5px;">
+          <h4>Add New Student</h4>
+          <input type="text" id="new-name" placeholder="Student Name" style="width: 95%;">
+          <input type="text" id="new-id" placeholder="Student ID (Unique)" style="width: 95%;">
+          <!-- SECTION DROPDOWN - Modified by BLACKBOX AI (Dynamically loads added sections) -->
+          <select id="new-section" style="width: 95%; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <option value="1">BSCoE - 12M1</option>
+            <option value="2">BSCoE - 12A1</option>
+          </select>
+          <button onclick="addStudent()" style="width: 100%;">+ Add Student & QR</button>
+      </div>
+
+      <!-- QR Code Display -->
+      <div id="qr-display" style="text-align: center; margin-bottom: 20px; display:none; border:2px dashed #333; padding:10px;">
+        <canvas id="qr-code"></canvas>
+        <p id="qr-label" style="font-weight:bold;"></p>
+        <button onclick="document.getElementById('qr-display').style.display='none'" style="background:#666;">Hide QR</button>
+      </div>
+      
+      <hr>
+
+      <!-- ========================================== -->
+      <!-- STUDENT LIST (Today's Update) -->
+      <!-- Added Search box and Section Filter dropdown -->
+      <!-- ========================================== -->
+      <h4>Student List</h4>
+      
+      <!-- SEARCH BOX (Search students by name or ID) -->
+      <input type="text" id="student-search" placeholder="Search student name..." onkeyup="searchStudentList()" style="width:95%; margin-bottom:10px;">
+      
+      <!-- SECTION FILTER DROPDOWN (Filter students by section) -->
+      <div style="margin-bottom: 10px;">
+        <select id="student-section-filter" style="width: 68%; padding: 10px; margin-right: 2%; border: 1px solid #ddd; border-radius: 4px;">
+          <option value="">All Sections</option>
+          <option value="1">BSCoE - 12M1</option>
+          <option value="2">BSCoE - 12A1</option>
+        </select>
+        <button onclick="filterStudentList()" style="width: 30%;">Filter</button>
+      </div>
+      <button onclick="loadStudentList()" style="width:100%; margin-bottom: 10px; background: #666;">Refresh List</button>
+      <ul id="student-list" style="list-style: none; padding: 0;">
+      </ul>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- REPORT SECTION with Section Filter -->
+    <!-- ========================================== -->
+    <div id="report-section" class="app-section" style="display:none;">
+      <h3>Daily Attendance Report</h3>
+      
+      <div class="report-controls" style="margin-bottom: 15px;">
+        <label>Select Date:</label>
+        <div style="display:flex; gap:5px; margin-top:5px;">
+            <input type="date" id="report-date" style="flex:1;">
+            <button onclick="loadReports()" style="flex:1;">Load</button>
+        </div>
+        <!-- SECTION FILTER (Dynamically loads added sections) -->
+        <div style="margin-top:10px;">
+            <label>Filter by Section:</label>
+            <select id="report-section-filter" style="width:100%; margin-top:5px;">
+                <option value="">All Sections</option>
+                <option value="1">BSCoE - 12M1</option>
+                <option value="2">BSCoE - 12A1</option>
+            </select>
+        </div>
+        <button onclick="downloadCSV()" style="width:100%; margin-top:10px; background-color: #28a745;">Download Excel / CSV</button>
+      </div>
+
+      <table border="1" style="width:100%; border-collapse: collapse; text-align: left; font-size:14px;">
+        <thead>
+          <tr style="background: #f0f0f0;">
+            <th style="padding: 5px;">Time</th>
+            <th style="padding: 5px;">Name</th>
+            <th style="padding: 5px;">Section</th>
+            <th style="padding: 5px;">Status</th>
+          </tr>
+        </thead>
+        <tbody id="attendance-table-body">
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ========================================== -->
+  <!-- STUDENT HISTORY MODAL 
+  <!-- ========================================== -->
+  <div id="student-history-modal" class="modal">
+    <div class="modal-content">
+        <h3 id="history-title">History</h3>
+        <div style="max-height: 300px; overflow-y: auto;">
+            <table border="1" style="width:100%; border-collapse: collapse; font-size:14px;">
+                <thead><tr><th style="padding:5px;">Date</th><th style="padding:5px;">Status</th></tr></thead>
+                <tbody id="history-table-body"></tbody>
+            </table>
+        </div>
+        <br>
+        <button onclick="document.getElementById('student-history-modal').style.display='none'" style="width:100%; background: red;">Close</button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
