@@ -1,0 +1,11 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Open in Chrome",
+            "file": "${workspaceFolder}/Attendance_Checker/index.html"
+        }
+    ]
+}

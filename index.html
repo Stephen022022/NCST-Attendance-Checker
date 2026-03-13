@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Attendance Checker - NCST</title>
+  
+  <link rel="stylesheet" href="styles/style.css">
+
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+
+
+</head>
+
+<body>
+  <div class="container" id="auth-container">
+    <div class="form-box active" id="login-form">
+      <form id="loginFormObj">
+        <h2>NCST Attendance Checker</h2>
+        <input type="email" name="email" placeholder="Email" required>
+        <div class="password-container">
+          <input type="password" name="password" placeholder="Password" id="login-password" required>
+          <img src="styles/closed-eye.jpg" id="login-toggle" onclick="togglePassword('login-password', 'login-toggle')">
+        </div>
+        <button type="submit">Login</button>
+        <p><a href="#" onclick="forgotPassword(); return false;">Forgot Password?</a></p>
+        <p>Don't have an account? <a href="#" onclick="showForm('register-form'); return false;">Register</a></p>
+      </form>
+    </div>
+
+    <div class="form-box" id="register-form" style="display:none;">
+      <form id="registerFormObj">
+        <h2>Create Account</h2>
+        <input type="text" name="name" placeholder="Full Name" required>
+        <input type="email" name="email" placeholder="Email" required>
+        <div class="password-container">
+          <input type="password" name="password" placeholder="Password" id="register-password" required>
+          <img src="styles/closed-eye.jpg" id="register-toggle" onclick="togglePassword('register-password', 'register-toggle')">
+        </div>
+        <button type="submit">Register</button>
+        <p>Already have an account? <a href="#" onclick="showForm('login-form'); return false;">Login</a></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="teacher-dashboard" style="display: none;">
+    <nav>
+      <h3>📚 NCST Attendance</h3>
+      <div style="flex: 1;"></div>
+    </nav>
+
+    <div style="text-align: center; padding: 10px 0;">
+      <button class="btn-danger" onclick="logout()">Logout</button>
+    </div>
+
+    <div class="controls">
+      <button onclick="showSection('scan-section')">📷 Scan</button>
+      <button onclick="showSection('time-sets-section')">⏰ Time Sets</button>
+      <button onclick="showSection('manage-section')">👥 Students</button>
+      <button onclick="showSection('report-section')">📅 Reports</button>
+    </div>
+
+    <div id="content-area">
+      <!-- SCAN SECTION -->
+      <div id="scan-section" class="app-section active">
+        <h3>Scan Attendance</h3>
+        
+        <div class="card">
+          <h4>Active Time Set</h4>
+          <div id="active-time-display" style="padding: 15px; text-align: center; background: #f0f9ff; border-radius: 6px;">
+            <!-- Content when there's an active time set -->
+            <div id="active-timeset-content" style="display: none;">
+              <div style="font-size: 18px; font-weight: 600; color: #fbbf24; margin-bottom: 10px;">
+                <span class="green-pulse"></span><span class="live-badge">LIVE</span>
+              </div>
+              <div id="time-set-name" style="font-size: 16px; font-weight: 600; color: #333;"></div>
+              <div id="time-set-info" style="font-size: 13px; color: #666; margin-top: 8px;"></div>
+              
+              <!-- Reading Animation -->
+              <div class="reading-animation-container" id="reading-anim">
+                <div class="reading-student">
+                  <div class="student-head"></div>
+                  <div class="student-body"></div>
+                </div>
+                <div class="animated-book">
+                  <div class="book-cover left-page"></div>
+                  <div class="book-cover right-page"></div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Content when there's NO active time set -->
+            <div id="no-timeset-content" style="display: block;">
+              <div style="font-size: 16px; font-weight: 600; color: #64748b; margin-bottom: 15px;">
+                No Active Time Set
+              </div>
+              
+              <!-- Sleeping Animation -->
+              <div class="sleeping-animation-container" id="sleeping-anim">
+                <div class="sleeping-student">
+                  <div class="student-head-sleeping"></div>
+                  <div class="student-body-sleeping"></div>
+                </div>
+                <div class="sleep-z sleep-z1">Z</div>
+                <div class="sleep-z sleep-z2">Z</div>
+                <div class="sleep-z sleep-z3">Z</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="reader"></div>
+        <div id="scan-result" class="status-msg" style="display:none;"></div>
+      </div>
+
+      <!-- TIME SETS MANAGEMENT SECTION -->
+      <div id="time-sets-section" class="app-section">
+        <h3>Manage Time Sets</h3>
+        
+        <div class="section-form">
+          <h4>Create New Time Set</h4>
+          <div class="form-group">
+            <label>Time Set Name</label>
+            <input type="text" id="new-time-set-name" placeholder="e.g., Morning Class" style="width: 100%;">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Start Scan Time</label>
+              <input type="time" id="new-time-set-start" style="width: 100%;">
+            </div>
+            <div class="form-group">
+              <label>Late Threshold (mins)</label>
+              <input type="number" id="new-time-set-late" placeholder="15" value="15" style="width: 100%;">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Absent Threshold (mins)</label>
+              <input type="number" id="new-time-set-absent" placeholder="45" value="45" style="width: 100%;">
+            </div>
+            <div class="form-group">
+              <label>Class Section</label>
+              <select id="new-time-set-section" style="width: 100%;">
+                <option value="">All Sections</option>
+              </select>
+            </div>
+          </div>
+          <button onclick="addTimeSet()" class="w-100">+ Create Time Set</button>
+        </div>
+
+        <div>
+          <h4>Existing Time Sets</h4>
+          <div id="time-sets-list"></div>
+        </div>
+      </div>
+
+      <!-- MANAGE STUDENTS SECTION -->
+      <div id="manage-section" class="app-section">
+        <h3>Manage Class Roster</h3>
+        
+        <!-- MANAGE SECTIONS PANEL -->
+        <div class="card" style="background: #f8f9fa; border-left: 4px solid #667eea; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleSectionPanel()">
+            <h4 style="margin: 0;">📂 Manage Sections</h4>
+            <span id="section-panel-toggle" style="font-size: 20px; font-weight: bold;">▼</span>
+          </div>
+          <div id="section-panel" style="margin-top: 15px;">
+            <div id="sections-management-list" style="max-height: 300px; overflow-y: auto;"></div>
+            <button onclick="showAddSectionModal()" style="width: 100%; margin-top: 10px; background: #28a745;">+ Add New Section</button>
+          </div>
+        </div>
+        
+        <div class="section-form">
+          <h4>Add New Student</h4>
+          <div class="form-group">
+            <label>Student Name</label>
+            <input type="text" id="new-name" placeholder="Full Name" style="width: 100%;">
+          </div>
+          <div class="form-group">
+            <label>Student ID</label>
+            <input type="text" id="new-id" placeholder="Unique ID" style="width: 100%;">
+          </div>
+          <div class="form-group">
+            <label>Section</label>
+            <div style="display: flex; gap: 8px; align-items: flex-end;">
+              <select id="new-section" style="flex: 1;">
+                <option value="">-- Select Section --</option>
+              </select>
+              <button onclick="toggleNewSectionInput()" type="button" style="padding: 12px 12px; background: #667eea; white-space: nowrap;">+ New</button>
+            </div>
+            <div id="new-section-input-group" style="display: none; margin-top: 8px;">
+              <input type="text" id="new-section-name-input" placeholder="e.g., BSCoE - 12M1" style="width: 100%; margin-bottom: 8px;">
+              <div style="display: flex; gap: 8px;">
+                <button onclick="createAndAssignSection()" style="flex: 1;">Create & Use</button>
+                <button onclick="toggleNewSectionInput()" class="btn-danger" style="flex: 1;">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <button onclick="addStudent()" style="width: 100%;">+ Add Student & QR</button>
+        </div>
+
+        <div id="qr-display" class="qr-display" style="display:none;">
+          <canvas id="qr-code"></canvas>
+          <p id="qr-label" style="font-weight:bold;"></p>
+          <button onclick="document.getElementById('qr-display').style.display='none'" class="btn-danger" style="width: 100%; margin-top: 10px;">Hide QR</button>
+        </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 2px solid #ddd;">
+
+        <h4>Student List</h4>
+        <div class="form-group">
+          <label>🔍 Search Students</label>
+          <input type="text" id="student-search" placeholder="Search by name or ID..." oninput="searchStudentList()" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label>Filter by Section</label>
+          <select id="student-section-filter" style="width: 100%;" onchange="searchStudentList()">
+            <option value="">All Sections</option>
+          </select>
+        </div>
+        <button onclick="loadStudentList()" style="width: 100%; margin-bottom: 15px;">↻ Refresh List</button>
+        <ul id="student-list"></ul>
+      </div>
+
+      <!-- REPORTS SECTION -->
+      <div id="report-section" class="app-section">
+        <h3>Attendance Reports</h3>
+        
+        <div class="card">
+<h4>🔍 Individual Student Search</h4>
+<div class="form-group">
+  <label>Search by Name or ID</label>
+  <input type="text" id="student-name-search" placeholder="Enter student name or ID..." oninput="searchStudentAttendance()" style="width: 100%;">
+</div>
+<div id="individual-search-results" style="min-height: 60px; margin-bottom: 20px;"></div>
+
+<hr style="margin: 25px 0;">
+
+<h4>Report Filters</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div class="form-group">
+              <label>Section</label>
+              <select id="report-section-filter" style="width: 100%;" onchange="loadReports()">
+                <option value="">All Sections</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Time Set</label>
+              <select id="report-timeset-filter" style="width: 100%;" onchange="loadReports()">
+                <option value="">All Time Sets</option>
+              </select>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+            <div class="form-group">
+              <label>Month</label>
+              <select id="report-month-filter" style="width: 100%;" onchange="loadReports()">
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Year</label>
+              <select id="report-year-filter" style="width: 100%;" onchange="loadReports()">
+              </select>
+            </div>
+          </div>
+          <button onclick="loadReports()" class="w-100">Load Report</button>
+          <button onclick="downloadCSV()" class="btn-success w-100" style="margin-top: 10px;">📥 Download CSV</button>
+        </div>
+
+        <div id="calendar-container" style="overflow-x: auto; border: 1px solid #ddd; border-radius: 6px; margin-top: 20px; max-height: 75vh; width: 100%; background: white;">
+          <div id="calendar-grid" class="calendar-grid" style="width: 100%; display: block;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="student-history-modal" class="modal">
+    <div class="modal-content">
+        <h3 id="history-title">History</h3>
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table>
+                <thead><tr><th>Date</th><th>Status</th></tr></thead>
+                <tbody id="history-table-body"></tbody>
+            </table>
+        </div>
+        <button onclick="document.getElementById('student-history-modal').style.display='none'" class="btn-danger w-100" style="margin-top: 15px;">Close</button>
+    </div>
+  </div>
+
+  <div id="add-section-modal" class="modal">
+    <div class="modal-content">
+        <h3>Add New Section</h3>
+        <div class="form-group">
+          <label>Section Name</label>
+          <input type="text" id="modal-section-name" placeholder="e.g., BSCoE - 12M1" style="width: 100%;">
+        </div>
+        <div class="form-group">
+          <label>Description (Optional)</label>
+          <input type="text" id="modal-section-desc" placeholder="Optional description" style="width: 100%;">
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 15px;">
+          <button onclick="addSectionFromModal()" style="flex: 1;">Create Section</button>
+          <button onclick="document.getElementById('add-section-modal').style.display='none'" class="btn-danger" style="flex: 1;">Cancel</button>
+        </div>
+    </div>
+  </div>
+
+  <div style="position: fixed; top: 15px; right: 15px; z-index: 9999;">
+    <button class="dark-mode-toggle" type="button" onclick="toggleDarkMode()">
+      <span class="mode-icon">🌙</span>
+      <span class="mode-text">Dark</span>
+    </button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
